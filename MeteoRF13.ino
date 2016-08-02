@@ -43,6 +43,7 @@ IPAddress server;
 //    INIT получен - Зеленый диод горит
 //
 /********************************************/
+void(* resetFunc) (void) = 0; // софт ресет
 
 void waitInit()
 {
@@ -110,8 +111,6 @@ void loop() {
   int inc = 0;
 
   byte i;
-  byte present = 0;
-  byte type_s;
   byte data[12];
   byte addr[8];
   float celsius = 0;
@@ -137,7 +136,7 @@ void loop() {
     delay(1000);     // maybe 750ms is enough, maybe not
     // we might do a ds.depower() here, but the reset will take care of it.
 
-    present = ds.reset();
+    ds.reset();
     ds.select(addr);
     ds.write(0xBE);         // Read Scratchpad
 
@@ -215,7 +214,7 @@ void loop() {
 
     countErrConnection++;
     if (countErrConnection == 4) {
-      setup();                  // если 4 раз данные не удастся передать - начать выполнение скетча с начала
+      resetFunc();                  // если 4 раз данные не удастся передать - софт ресет
     }
   }
 
