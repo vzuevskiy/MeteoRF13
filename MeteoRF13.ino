@@ -54,7 +54,6 @@ void waitInit()
 {
   digitalWrite(YELLOWLEDPIN, HIGH);
   digitalWrite(REDLEDPIN, HIGH);
-  int waitTime = 0;
   while (1) {
     int packetSize = Udp.parsePacket();
     if (packetSize)
@@ -68,10 +67,6 @@ void waitInit()
         digitalWrite(REDLEDPIN, LOW);
         break;
       }
-    }
-    waitTime++;
-    if (waitTime == 6000) {      // если не приходит init раз в минуту проверять работу сети
-      resetFunc(); 
     }
     delay(10);
   }
@@ -99,18 +94,51 @@ void setup() {
       break;
     }
   }
-
   waitInit();
   dht.begin();
 }
 
 int countErrConnection = 0;
-
+String toServer;
 
 void loop() {
-  int inc = 0;
+  toServer = "METEO,S0001,";
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
 
-  byte i;
+  /********************************************/
+  //
+  //    Получаем данные от DHT22
+  //    Полученные данные записываем в toString
+  //
+  /********************************************/
+
+  if (isnan(t) || isnan(h)) {
+    // Если DHT молчит
+    for (int i = 1; i < 6; i++) {
+      digitalWrite(REDLEDPIN, HIGH);
+      delay(150);
+      digitalWrite(REDLEDPIN, LOW);
+      delay(150);
+    }
+  } else {
+    toServer = toServer + "S256,"  + "T" + t + ",H" + h;  // 256 - DHT
+    for (int i = 1; i < 6; i++) {
+      digitalWrite(YELLOWLEDPIN, LOW);
+      delay(150);
+      digitalWrite(YELLOWLEDPIN, HIGH);
+      delay(150);
+    }
+  }
+
+  /********************************************/
+  //
+  //    Получаем данные от DS18b20
+  //    Полученные данные записываем в toString,
+  //    Пока не кончатся датчики
+  //
+  /********************************************/
+
   byte data[12];
   byte addr[8];
   float celsius = 0;
@@ -122,7 +150,7 @@ void loop() {
       delay(250);
       break;
     }
-    
+
     if (OneWire::crc8(addr, 7) != addr[7]) {
       break;
     }
@@ -135,74 +163,53 @@ void loop() {
     ds.select(addr);          // выбираем наш датчик
     ds.write(0xBE);           // Просим выслать замерчик
 
-    for ( i = 0; i < 9; i++) {           // Получаем несчастные 9 байт 
+    for (int i = 0; i < 9; i++) {           // Получаем несчастные 9 байт
       data[i] = ds.read();
     }
 
     int16_t raw = (data[1] << 8) | data[0]; // В 0 и 1 байтах наша температурка
-    celsius += (float)raw / 16.0;           // 0-3 бит - дробная часть
-    inc++;
+    celsius = (float)raw / 16.0;           // 0-3 бит - дробная часть
+
+    toServer = toServer + ",S" + addr[2] + ",T" + celsius; // Серийник расположен с 8 по 47 бит, берем кусочек, он наверняка будет уникальным
   }
 
-  float h = dht.readHumidity();
-  float t = dht.readTemperature();
 
-  if (isnan(t) || isnan(h)) {
-    // Если DHT молчит
-    for (int i = 1; i < 6; i++) {
-      digitalWrite(REDLEDPIN, HIGH);
-      delay(150);
-      digitalWrite(REDLEDPIN, LOW);
-      delay(150);
-    }
-  } else {
-    inc++;
-    if (inc == 1) {
-      for (int i = 1; i < 6; i++) {
-        digitalWrite(YELLOWLEDPIN, LOW);
-        delay(150);
-        digitalWrite(YELLOWLEDPIN, HIGH);
-        delay(150);
-      }
-    }
-  }
+  /********************************************/
+  //
+  //    Отправляем на сервер строку toString
+  //    сформированную в процессе выполнения
+  //    предыдущих операций;
+  //    Делаем 5 попыток, если не получается
+  //    соединиться с сервером, то делаем софт
+  //    резет.
+  //
+  /********************************************/
+  countErrConnection = 0;
+  while (1) {
+    if (client.connect(server, 7364)) {
+      client.print(toServer);
+      client.stop();
 
-  float tout = (celsius + t) / inc;
-
-  if (client.connect(server, 7364)) {
-    //char out[256] = "ID:001IP:" + Ethernet.localIP();
-    client.print("METEO,");
-    client.print("S0001,T");
-    client.print(tout);
-    client.print(",H");
-    client.print(h);
-    client.print(",INC");
-    client.print(inc);
-    client.stop();
-
-    countErrConnection = 0;
-
-    for (int i = 1; i < 3; i++) {
-      digitalWrite(YELLOWLEDPIN, LOW);
-      delay(350);
-      digitalWrite(YELLOWLEDPIN, HIGH);
-      delay(350);
-    }
-
-  } else {                          // Если не удается установить связь с сервером    
       for (int i = 1; i < 3; i++) {
-       digitalWrite(REDLEDPIN, HIGH);
-       delay(350);
-       digitalWrite(REDLEDPIN, LOW);
-       delay(350);
+        digitalWrite(YELLOWLEDPIN, LOW);
+        delay(350);
+        digitalWrite(YELLOWLEDPIN, HIGH);
+        delay(350);
       }
-    countErrConnection++;
-    
-     if (countErrConnection == 4) {
-        resetFunc();                  // если 4 раз данные не удастся передать - софт ресет
-     }
+      break;
+    } else {
+      // Если не удается установить связь с сервером
+      for (int i = 1; i < 3; i++) {
+        digitalWrite(REDLEDPIN, HIGH);
+        delay(350);
+        digitalWrite(REDLEDPIN, LOW);
+        delay(350);
+      }
+      countErrConnection++;
+      if (countErrConnection == 5) {
+        resetFunc();                  // если 5 раз данные не удастся передать - софт ресет и ждем пока сервер очнется
+      }
+    }
   }
   delay(300000);                 // Засыпаем на 300 секунд
 }
-
-
