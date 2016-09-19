@@ -99,13 +99,12 @@ void setup() {
 }
 
 int countErrConnection = 0;
-String toServer;
-
-void loop() {
-  toServer = "METEO,S0001,";
+String getMeasurements() {
+  String toServer;
+  toServer = "METEO,N0001,";
   float h = dht.readHumidity();
   float t = dht.readTemperature();
-
+ 
   /********************************************/
   //
   //    Получаем данные от DHT22
@@ -144,7 +143,6 @@ void loop() {
   float celsius = 0;
 
   while (1) {
-
     if ( !ds.search(addr)) {
       ds.reset_search();
       delay(250);
@@ -172,8 +170,10 @@ void loop() {
 
     toServer = toServer + ",S" + addr[2] + ",T" + celsius; // Серийник расположен с 8 по 47 бит, берем кусочек, он наверняка будет уникальным
   }
+  return toServer;
+}
 
-
+void loop() {
   /********************************************/
   //
   //    Отправляем на сервер строку toString
@@ -184,10 +184,11 @@ void loop() {
   //    резет.
   //
   /********************************************/
+
   countErrConnection = 0;
   while (1) {
     if (client.connect(server, 7364)) {
-      client.print(toServer);
+      client.print(getMeasurements());
       client.stop();
 
       for (int i = 1; i < 3; i++) {
